@@ -1,0 +1,193 @@
+config:
+
+  project_name: sycl
+
+steps:
+
+  build:
+    - printenv | sort
+    - echo +++Doing the build
+    - if [ -d archive ]; then rm -rf "archive"; fi
+    - set +x && source /ics/itools/unx/bin/icssetup.sh -sta /ics/itools/unx/bin
+    - source /rdrive/ref/gcc/bin/set_gcc 7.4.0 && echo "gcc 7.4.0 from R-drive is used"
+    - set -x;
+    - cd $WSDIR/llvm
+    - if [ -d "build" ]; then rm -rf "build"; fi
+    - if [ -d "deps" ]; then rm -rf "deps"; fi
+    - cd ../..
+    - export https_proxy=proxy-chain.intel.com:911
+    - if [ ! -d "OpenCL-Headers" ]; then git clone https://github.com/KhronosGroup/OpenCL-Headers OpenCL-Headers; fi
+    - if [ ! -d "OpenCL-ICD-Loader" ]; then
+    -   git clone https://github.com/KhronosGroup/OpenCL-ICD-Loader OpenCL-ICD-Loader;
+    -   cd OpenCL-ICD-Loader;
+    -   which cmake;
+    -   cmake .;
+    -   make C_INCLUDE_PATH="$WORKSPACE/$OPENCL_HEADERS" -j$NPROC;
+    -   cd ..;
+    - fi
+    - if [ -d "build" ]; then rm -rf "build"; fi
+    - mkdir build
+    - cd build
+    - which cmake
+    - pwd
+    - CC=`which gcc` CXX=`which g++` cmake -DCMAKE_BUILD_TYPE=Release -DOpenCL_INCLUDE_DIR=$WORKSPACE/$OPENCL_HEADERS 
+         -DOpenCL_LIBRARY=$WORKSPACE/$ICD_LIB
+         -DLLVM_ENABLE_PROJECTS="clang;llvm-spirv;sycl"
+         -DLLVM_EXTERNAL_PROJECTS="sycl;llvm-spirv"
+         -DLLVM_EXTERNAL_SYCL_SOURCE_DIR=$WSDIR/llvm/sycl
+         -DLLVM_EXTERNAL_LLVM_SPIRV_SOURCE_DIR=$WSDIR/llvm/llvm-spirv
+         -DLLVM_TARGETS_TO_BUILD="X86" -DBUILD_SHARED_LIBS=true
+         -DCMAKE_INSTALL_PREFIX=$WSDIR/$BUILD/ $WSDIR/llvm/llvm;
+    - if [ -d "$WSDIR/$BUILD" ]; then rm -rf "$WSDIR/$BUILD"; fi;
+    - make install -j$NPROC;
+    - make -j$NPROC check-llvm check-clang check-llvm-spirv VERBOSE=1 LIT_ARGS="-v -j $NPROC"
+    - export LD_LIBRARY_PATH=/rdrive/ref/opencl/runtime/linux/oclcpu/$OCL_VERSION_UB18_CPU/intel64_lin:$LD_LIBRARY_PATH;
+    - OUTPUT=`/rdrive/tests/data/mainline/CT-SpecialTests/opencl/tools/lin.x64/bin/lscl`;
+    - if $OUTPUT | grep Type | grep CPU; then
+    -   echo Starting sycl unit tests;
+    -   make -j$NPROC check-sycl VERBOSE=1 LIT_ARGS="-v -j $NPROC";
+    - else
+    -   echo "NO INTEL CPU OPENCL DEVICE FOUND, SO SKIPPING SYCL LIT TESTING";
+    - fi
+    - pwd
+    - mkdir $WORKSPACE/archive
+    - mkdir $WORKSPACE/archive/deps
+    - mv $WORKSPACE/OpenCL-Headers $WORKSPACE/archive/deps
+    - mv $WORKSPACE/OpenCL-ICD-Loader $WORKSPACE/archive/deps
+    - mv $WORKSPACE/build $WORKSPACE/build_dir_lit
+    - mv $WSDIR/$BUILD $WORKSPACE/archive/$BUILD
+    - echo "DONE"
+
+  archive primary build:
+    - echo +++Archiving primary build artifacts
+    - set +x && source /ics/itools/unx/bin/icssetup.sh -sta /ics/itools/unx/bin -min
+    - mkdir -p $ICS_ARCHIVE_ROOT/sycl-test/build-lit/$BUILD_TAG
+    - cp -R $WORKSPACE/archive/deps $ICS_ARCHIVE_ROOT/sycl-test/build-lit/$BUILD_TAG
+    - cp -R $WORKSPACE/archive/$BUILD $ICS_ARCHIVE_ROOT/sycl-test/build-lit/$BUILD_TAG
+    
+  commit-msg check:
+    - echo +++Commit message check
+    - if [ "$LOCAL_BRANCH" == "$MAIN_BRANCH_NAME" ]; then echo "JOB SKIPPED"; exit 0; fi
+    - cd $WSDIR/llvm && git log -1 --pretty=%B | grep "^Signed-off-by"
+    
+  build-ref:
+    - cd $WSDIR/llvm
+    - if [ -d "build-ref" ]; then rm -rf "build-ref"; fi
+    - if [ "$LOCAL_BRANCH" == "$MAIN_BRANCH_NAME" ]; then echo "JOB SKIPPED"; exit 0; fi
+    - CI_COMMIT_REF_SHA=$(git rev-parse $(git log "$MAIN_BRANCH_NAME".."$LOCAL_BRANCH" --oneline
+       --pretty=tformat:"%H" | tail -1)^) && echo $CI_COMMIT_REF_SHA
+    - git checkout $CI_COMMIT_REF_SHA
+    - cd $WORKSPACE
+    - set +x
+    - . /ics/itools/unx/bin/icssetup.ksh -start /ics/itools/unx/bin
+    - if [ -s "/opt/rh/devtoolset-7/root/usr/bin/gcc" ]; then
+    -   source scl_source enable devtoolset-7 && echo "gcc 7 is used from devtoolset-7";
+    - else
+    -   source /rdrive/ref/gcc/bin/set_gcc 7.4.0 && echo "gcc 7.4.0 from R-drive is used";
+    - fi
+    - set -x
+    - export https_proxy=proxy-chain.intel.com:911
+    - if [ ! -d "OpenCL-Headers" ]; then 
+    -   git clone https://github.com/KhronosGroup/OpenCL-Headers OpenCL-Headers;
+    - fi
+    - if [ ! -d "OpenCL-ICD-Loader" ]; then
+    -   source /rdrive/ref/gcc/bin/set_gcc 7.4.0 && echo "gcc 7.4.0 from R-drive is used";
+    -   git clone https://github.com/KhronosGroup/OpenCL-ICD-Loader OpenCL-ICD-Loader;
+    -   cd OpenCL-ICD-Loader;
+    -   cmake .;
+    -   make C_INCLUDE_PATH="$WORKSPACE/$OPENCL_HEADERS" -j$NPROC;
+    -   cd ..;
+    - fi
+    - if [ -d "build" ]; then rm -rf "build"; fi
+    - mkdir build
+    - cd build
+    - CC=`which gcc` CXX=`which g++` cmake -DCMAKE_BUILD_TYPE=Release
+       -DOpenCL_INCLUDE_DIR=$WORKSPACE/$OPENCL_HEADERS
+       -DOpenCL_LIBRARY=$WORKSPACE/$ICD_LIB
+       -DLLVM_ENABLE_PROJECTS="clang;llvm-spirv;sycl"
+       -DLLVM_EXTERNAL_PROJECTS="sycl;llvm-spirv"
+       -DLLVM_EXTERNAL_SYCL_SOURCE_DIR=$WSDIR/llvm/sycl
+       -DLLVM_EXTERNAL_LLVM_SPIRV_SOURCE_DIR=$WSDIR/llvm/llvm-spirv
+       -DLLVM_TARGETS_TO_BUILD="X86" -DBUILD_SHARED_LIBS=true
+       -DCMAKE_INSTALL_PREFIX=$WSDIR/$BUILD_REF/ $WSDIR/llvm/llvm;
+    - if [ -d "$WSDIR/$BUILD_REF" ]; then rm -rf "$WSDIR/$BUILD_REF"; fi;
+    - make install -j$NPROC;
+    - make -j$NPROC check-llvm check-clang check-llvm-spirv VERBOSE=1 LIT_ARGS="-v -j $NPROC"
+    - export LD_LIBRARY_PATH=/rdrive/ref/opencl/runtime/linux/oclcpu/$OCL_VERSION_UB18_CPU/intel64_lin:$LD_LIBRARY_PATH;
+    - OUTPUT=`/rdrive/tests/data/mainline/CT-SpecialTests/opencl/tools/lin.x64/bin/lscl`;
+    - if $OUTPUT | grep Type | grep CPU; then
+    -   echo Starting sycl unit tests;
+    -   make -j$NPROC check-sycl VERBOSE=1 LIT_ARGS="-v -j $NPROC";
+    - else
+    -   echo "NO INTEL CPU OPENCL DEVICE FOUND, SO SKIPPING SYCL LIT TESTING";
+    - fi
+    - mv $WORKSPACE/build $WORKSPACE/build_dir
+    - if [ ! -d $WORKSPACE/archive ]; then mkdir $WORKSPACE/archive; fi
+    - mv $WSDIR/$BUILD_REF $WORKSPACE/archive/$BUILD_REF
+    - echo "DONE"
+  
+  archive reference build:
+    - echo +++Archiving reference build artifacts
+    - if [ "$LOCAL_BRANCH" == "$MAIN_BRANCH_NAME" ]; then echo "JOB SKIPPED"; exit 0; fi
+    - set +x && source /ics/itools/unx/bin/icssetup.sh -sta /ics/itools/unx/bin -min
+    - if [ ! -d $ICS_ARCHIVE_ROOT/sycl-test/build-lit/$BUILD_TAG ]; then
+    -   mkdir -p $ICS_ARCHIVE_ROOT/sycl-test/build-lit/$BUILD_TAG;
+    - fi
+    - cp -R $WORKSPACE/archive/$BUILD_REF $ICS_ARCHIVE_ROOT/sycl-test/build-lit/$BUILD_TAG
+  
+  IPLDT scans:
+    - echo +++Doing the IPLDT scans
+    - if [ "$LOCAL_BRANCH" == "$MAIN_BRANCH_NAME" ]; then echo "JOB SKIPPED"; exit 0; fi
+    - set +x
+    - source /ics/itools/unx/bin/icssetup.sh -sta /ics/itools/unx/bin -min
+    - set -x
+    - RESULT_DIR="${WORKSPACE}/ipldt-results"
+    - if [ -d $RESULT_DIR ]; then rm -rf $RESULT_DIR; fi
+    - mkdir $RESULT_DIR
+    - cd $WSDIR/llvm
+    - BASE_COMMIT=`git merge-base origin/$MAIN_BRANCH_NAME origin/$LOCAL_BRANCH`
+    - if [ $? -ne 0 ]; then exit "fail to get base commit"; fi
+    - PATH_LIST_FILE=$RESULT_DIR/file_list.txt
+    - PATH_LIST_COMMITMSG=$RESULT_DIR/commitmsg_file.txt
+    - COMMIT_DIFF=$RESULT_DIR/commit_msg.txt
+    - PATCH_DIFF=$RESULT_DIR/patch_file.txt
+    - echo "Check modified code and commit messages for IP leaks"
+    - git --no-pager log ${BASE_COMMIT}..$LOCAL_BRANCH --not origin/intel > ${PATCH_DIFF}
+    - cp $PATCH_DIFF $COMMIT_DIFF
+    - echo $COMMIT_DIFF > $PATH_LIST_COMMITMSG
+    - git --no-pager log -p ${BASE_COMMIT}..$LOCAL_BRANCH --not origin/intel | grep "^+" | grep -v "^+++" >> ${PATCH_DIFF}
+    - echo ${PATCH_DIFF} > ${PATH_LIST_FILE}
+    - if [ -d "$WORKSPACE/tools" ]; then rm -rf $WORKSPACE/tools; fi
+    - (mkdir $WORKSPACE/tools && cd $WORKSPACE/tools && git archive --remote=ssh://git@gitlab.devtools.intel.com:29418/icl-tools/ci.git  HEAD ipldt.tgz | tar -x && tar xf ipldt.tgz)
+    - cat $PATH_LIST_FILE
+    - EXIT_STATUS=0
+    - $WORKSPACE/tools/ipldt3_lin_intel64/ipldt3_lin_intel64 --r-overwrite -r $RESULT_DIR --if ${PATH_LIST_FILE} || EXIT_STATUS=$?
+    - echo "====== contents of $RESULT_DIR/ipldt_results.txt ==== patch scan"
+    - cat $RESULT_DIR/ipldt_results.txt
+    - if [ $EXIT_STATUS -ne 0 ]; then
+    -   echo "There is suspicious change - start full file scan.";
+    -   git --no-pager log $BASE_COMMIT..$LOCAL_BRANCH --not origin/intel --name-only --pretty=format:| sort | uniq >  $PATH_LIST_FILE;
+    -   echo "changed files:";
+    -   cat $PATH_LIST_FILE;
+    -   $WORKSPACE/tools/ipldt3_lin_intel64/ipldt3_lin_intel64 --r-overwrite  -r $RESULT_DIR --if $PATH_LIST_FILE || EXIT_STATUS=$?;
+    -   echo "====== contents of $RESULT_DIR/ipldt_results.txt  === full scan";
+    -   cat "$RESULT_DIR/ipldt_results.txt";
+    -   echo "Re-scan commit message only";
+    -   $WORKSPACE/tools/ipldt3_lin_intel64/ipldt3_lin_intel64 --r-overwrite  -r $RESULT_DIR --if $PATH_LIST_COMMITMSG || EXIT_STATUS=$EXIT_STATUS||$?;
+    -   cat "$RESULT_DIR/ipldt_results.txt";
+    -   echo "Exit code:$EXIT_STATUS";
+    - fi
+    - mv $RESULT_DIR $WORKSPACE/archive
+    - cp -R $WORKSPACE/archive/ipldt-results $ICS_ARCHIVE_ROOT/sycl-test/build-lit/$BUILD_TAG
+    - exit $EXIT_STATUS
+
+environment:
+  MAIN_BRANCH_NAME:  "sycl"
+  NPROC:  8
+  BUILD:  "build"
+  BUILD_REF: "build-ref"
+  OCL_VERSION_UB18_CPU:  "20190622_000000"
+  OPENCL_HEADERS: "OpenCL-Headers"
+  ICD_LIB: "OpenCL-ICD-Loader/libOpenCL.so"
+
+timeout:  240

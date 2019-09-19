@@ -1,0 +1,55 @@
+@Library('wolox-ci@icl-builds') _
+
+node('SC || NB') {
+    stage('CleanWS') {
+        deleteDir()
+    }
+    stage('CreateWS') {
+        sh label: 'Shell command execution', returnStdout: true, script: "echo `printenv | sort`";
+
+        script {
+
+            gitVars = dir('ws/llvm') {
+                git changelog: false,
+                credentialsId: 'kmw-github-cred',
+                poll: false,
+                url: 'https://github.com/otcshare/llvm.git',
+                branch: 'sycl'
+            }
+
+            env.GIT_COMMIT = gitVars.GIT_COMMIT
+            env.GIT_LOCAL_BRANCH = gitVars.GIT_LOCAL_BRANCH
+            env.GIT_BRANCH = gitVars.GIT_BRANCH
+            println "Branch=$env.GIT_LOCAL_BRANCH"
+            println "Branch is $env.BRANCH_NAME"
+            println "Local branch is $env.GIT_LOCAL_BRANCH"
+
+            sh label: 'Shell command execution', returnStdout: true,
+               script: "printenv | sort";
+
+        }
+
+        env.WSDIR=env.WORKSPACE + '/ws'
+        println "Workdir=$env.WSDIR"
+
+        if ( env.CHANGE_BRANCH ) {
+            env.LOCAL_BRANCH=env.CHANGE_BRANCH
+        } else if ( env.BRANCH_NAME ) {
+            env.LOCAL_BRANCH=env.BRANCH_NAME
+        } else {
+            env.LOCAL_BRANCH=env.GIT_BRANCH.drop(env.GIT_BRANCH.indexOf('/')+1)
+        }
+
+        sh label: 'Shell command execution', returnStdout: true,
+           script: "cd $WSDIR/llvm && git checkout $LOCAL_BRANCH";
+
+        buildDescription 'Workspace checkout is complete.'
+    }
+
+    // create archive directory
+    sh label: 'Shell command execution', returnStdout: true,
+       script: "if [ -d $WORKSPACE/archive ]; then rm -rf $WORKSPACE/archive; fi; mkdir $WORKSPACE/archive";
+    woloxCi("$env.WSDIR/llvm/jenkins/jenkins.yml")
+
+    archiveArtifacts artifacts: 'archive/', allowEmptyArchive: true
+}
