@@ -1,17 +1,9 @@
 @Library('wolox-ci@icl-builds') _
 
 node('SC || NB') {
-//    stage('CleanWS') {
-//        deleteDir()
-//    }
     stage('CreateWS') {
         sh label: 'Shell command execution', returnStdout: true, script: "echo `printenv | sort`";
-
-
-            sh label: 'Shell command execution', returnStdout: true,
-               script: "printenv | sort";
-
-        }
+        sh label: 'Shell command execution', returnStdout: true, script: "printenv | sort";
 
         env.WSDIR=env.WORKSPACE + '/ws'
         println "Workdir=$env.WSDIR"
