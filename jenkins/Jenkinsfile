@@ -1,28 +1,12 @@
 @Library('wolox-ci@icl-builds') _
 
 node('SC || NB') {
-    stage('CleanWS') {
-        deleteDir()
-    }
+//    stage('CleanWS') {
+//        deleteDir()
+//    }
     stage('CreateWS') {
         sh label: 'Shell command execution', returnStdout: true, script: "echo `printenv | sort`";
 
-        script {
-
-            gitVars = dir('ws/llvm') {
-                git changelog: false,
-                credentialsId: 'kmw-github-cred',
-                poll: false,
-                url: 'https://github.com/otcshare/llvm.git',
-                branch: 'sycl'
-            }
-
-            env.GIT_COMMIT = gitVars.GIT_COMMIT
-            env.GIT_LOCAL_BRANCH = gitVars.GIT_LOCAL_BRANCH
-            env.GIT_BRANCH = gitVars.GIT_BRANCH
-            println "Branch=$env.GIT_LOCAL_BRANCH"
-            println "Branch is $env.BRANCH_NAME"
-            println "Local branch is $env.GIT_LOCAL_BRANCH"
 
             sh label: 'Shell command execution', returnStdout: true,
                script: "printenv | sort";
