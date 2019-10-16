@@ -2,7 +2,6 @@
 
 node('SC || NB') {
     stage('CreateWS') {
-        sh label: 'Shell command execution', returnStdout: true, script: "echo `printenv | sort`";
         sh label: 'Shell command execution', returnStdout: true, script: "printenv | sort";
 
         env.WSDIR=env.WORKSPACE + '/ws'
