@@ -1,19 +1,90 @@
-name: C/C++ CI
+# POC for GitHub Actions CI
+# Note repeated steps are necessary because
+# environment setup is 'reset' at each step
+# unless specific env vars are set in env section
+name: sycl ci
 
 on: [push]
-
+   
 jobs:
   build:
-
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted]
+    timeout-minutes: 600
     
     steps:
     - uses: actions/checkout@v2
-    - name: configure
-      run: ./configure
-    - name: make
-      run: make
-    - name: make check
-      run: make check
-    - name: make distcheck
-      run: make distcheck
+      with:
+        path: ws/llvm 
+    - name: clean workspace
+      run: |
+        echo +++Doing the build
+        echo Github workspace root: $GITHUB_WORKSPACE
+        echo Current directory: $PWD
+        cd $GITHUB_WORKSPACE/ws/llvm
+        if [ -d "build" ]; then rm -rf "build"; fi
+        if [ -d "deps" ]; then rm -rf "deps"; fi
+        cd ../..
+    - name: build headers & libraries
+      run: |
+        echo Current directory: $PWD
+        export https_proxy=proxy-chain.intel.com:911
+        set +x && source /ics/itools/unx/bin/icssetup.sh -sta /ics/itools/unx/bin
+        source /rdrive/ref/gcc/bin/set_gcc 7.4.0 && echo "gcc 7.4.0 from R-drive is used"
+        set -x
+        whoami
+        export PATH=$(echo $PATH | sed -e 's/:\/usr\/intel\/bin//')
+        if [ ! -d "OpenCL-Headers" ]; then git clone https://github.com/KhronosGroup/OpenCL-Headers OpenCL-Headers; fi
+        if [ ! -d "OpenCL-ICD-Loader" ]; then
+            git clone https://github.com/KhronosGroup/OpenCL-ICD-Loader OpenCL-ICD-Loader;
+            cd OpenCL-ICD-Loader;
+            which cmake;
+            cmake .;
+            make C_INCLUDE_PATH="$GITHUB_WORKSPACE/$OPENCL_HEADERS" -j$NPROC;
+            cd ..;
+        fi
+        echo "OpenCL Loader is built"
+    - name: build sycl
+      run: |
+        echo Current directory: $PWD
+        export WSDIR=$GITHUB_WORKSPACE/ws
+        set +x && source /ics/itools/unx/bin/icssetup.sh -sta /ics/itools/unx/bin
+        source /rdrive/ref/gcc/bin/set_gcc 7.4.0 && echo "gcc 7.4.0 from R-drive is used"
+        set -x
+        export PATH=$(echo $PATH | sed -e 's/:\/usr\/intel\/bin//')
+        if [ -d "build" ]; then rm -rf "build"; fi
+        mkdir build
+        cd build
+        which cmake
+        pwd
+
+        CC=`which gcc` CXX=`which g++` cmake -DCMAKE_BUILD_TYPE=Release -DOpenCL_INCLUDE_DIR=$GITHUB_WORKSPACE/$OPENCL_HEADERS \
+        DOpenCL_LIBRARY=$GITHUB_WORKSPACE/$ICD_LIB \
+           -DLLVM_ENABLE_PROJECTS="clang;llvm-spirv;sycl" \
+           -DLLVM_EXTERNAL_PROJECTS="sycl;llvm-spirv" \
+           -DLLVM_EXTERNAL_SYCL_SOURCE_DIR=$WSDIR/llvm/sycl \
+           -DLLVM_EXTERNAL_LLVM_SPIRV_SOURCE_DIR=$WSDIR/llvm/llvm-spirv \
+           -DLLVM_TARGETS_TO_BUILD="X86" -DBUILD_SHARED_LIBS=true \
+           -DCMAKE_INSTALL_PREFIX=$WSDIR/$BUILD/ $WSDIR/llvm/llvm;
+        if [ -d "$WSDIR/$BUILD" ]; then rm -rf "$WSDIR/$BUILD"; fi;
+        make install -j$NPROC;
+        echo Current directory: $PWD
+        set +x && source /ics/itools/unx/bin/icssetup.sh -sta /ics/itools/unx/bin
+        source /rdrive/ref/gcc/bin/set_gcc 7.4.0 && echo "gcc 7.4.0 from R-drive is used"
+        set -x
+        export PATH=$(echo $PATH | sed -e 's/:\/usr\/intel\/bin//')
+        make -j$NPROC check-llvm check-clang check-llvm-spirv VERBOSE=1 LIT_ARGS="-v -j $NPROC"
+        export LD_LIBRARY_PATH=/rdrive/ref/opencl/runtime/linux/oclcpu/$OCL_CPU_RT_VERSION/intel64_lin:$LD_LIBRARY_PATH;
+        if `/rdrive/tests/data/mainline/CT-SpecialTests/opencl/tools/lin.x64/bin/lscl` | grep Type | grep CPU; then
+            echo Starting sycl unit tests;
+            make -j$NPROC check-sycl VERBOSE=1 LIT_ARGS="-v -j $NPROC";
+        else
+            echo "NO INTEL CPU OPENCL DEVICE FOUND, SO SKIPPING SYCL LIT TESTING";
+        fi
+
+env:
+  NPROC: 8
+  OPENCL_HEADERS:  "OpenCL-Headers"
+  ICD_LIB: "OpenCL-ICD-Loader/libOpenCL.so"
+  WSDIR: "$GITHUB_WORKSPACE/ws"
+  BUILD:  "build"  
+  OCL_CPU_RT_VERSION:  "2020.9.1.0.18"
