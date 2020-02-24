@@ -8,7 +8,7 @@ on: [push]
    
 jobs:
   build:
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, linux]
     timeout-minutes: 600
     
     steps:
@@ -20,6 +20,7 @@ jobs:
         echo +++Doing the build
         echo Github workspace root: $GITHUB_WORKSPACE
         echo Current directory: $PWD
+        printenv | sort
         cd $GITHUB_WORKSPACE/ws/llvm
         if [ -d "build" ]; then rm -rf "build"; fi
         if [ -d "deps" ]; then rm -rf "deps"; fi
@@ -80,7 +81,7 @@ jobs:
         else
             echo "NO INTEL CPU OPENCL DEVICE FOUND, SO SKIPPING SYCL LIT TESTING";
         fi
-
+               
 env:
   NPROC: 8
   OPENCL_HEADERS:  "OpenCL-Headers"
